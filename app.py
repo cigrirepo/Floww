@@ -44,24 +44,38 @@ client_type = st.sidebar.selectbox("Client type", ["SMB", "Mid-Market", "Enterpr
 deal_size   = st.sidebar.selectbox("Deal size",   ["<100K", "100K-500K", "500K-1M", "1M-5M", ">5M"])
 
 # ─────────────────────────────────────────
+# Parse AI JSON to stages/tips
+# ─────────────────────────────────────────
+def parse_workflow(data: Dict) -> (List[str], Dict[str, str]):
+    workflow = data.get("workflow", [])
+    stages = [step.get("stage", "") for step in workflow]
+    tips = {step.get("stage", ""): step.get("tip", "") for step in workflow}
+    return stages, tips
+
+# ─────────────────────────────────────────
 # Generate workflow
 # ─────────────────────────────────────────
 if st.sidebar.button("Generate deal workflow"):
     with st.spinner("Generating workflow…"):
-        # Construct a JSON-based prompt for robust parsing
-        prompt = (
+        # Construct system + user messages enforcing strict JSON output
+        system_msg = (
             "You are an enterprise sales consultant. "
-            f"Generate a detailed deal-closing workflow for '{company or 'the client'}' in {industry}. "
-            f"Client type is {client_type}, deal size is {deal_size}. "
-            "Return the response as valid JSON with a key 'workflow', which is a list of objects. "
-            "Each object must have 'stage' and 'tip' fields. Example output format: "
-            "{ 'workflow': [ { 'stage': 'Prospecting', 'tip': 'Use ... ' }, ... ] }"
+            "Output must be ONLY valid JSON with a single key 'workflow'. "
+            "'workflow' is a list of objects, each with 'stage' and 'tip' fields."
         )
+        user_msg = (
+            f"Generate a deal-closing workflow for '{company or 'the client'}' in {industry}. "
+            f"Client type: {client_type}, Deal size: {deal_size}."
+        )
+
         try:
             resp = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role": "system", "content": prompt}],
-                temperature=0.7,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_msg}
+                ],
+                temperature=0.0,
                 max_tokens=800,
             )
             raw = resp.choices[0].message.content
@@ -69,28 +83,23 @@ if st.sidebar.button("Generate deal workflow"):
             st.error(f"OpenAI API error: {e}")
             st.stop()
 
-        # Parse JSON response
+        # Debug: show raw if JSON parse fails
         try:
             data = json.loads(raw)
-            workflow: List[Dict[str, str]] = data.get('workflow', [])
         except json.JSONDecodeError:
             st.error("Failed to parse JSON from AI. Raw output below:")
             st.code(raw, language='json')
             st.stop()
 
-        if not workflow:
+        stages, tips = parse_workflow(data)
+        if not stages:
             st.error("No workflow items found in JSON.")
             st.stop()
-
-        stages = [item['stage'] for item in workflow]
-        tips = {item['stage']: item.get('tip', '') for item in workflow}
 
         # ── Visual workflow with Graphviz ──
         dot = Digraph("Workflow", format="png")
         for i, s in enumerate(stages):
-            label = s
-            if company:
-                label = f"{s}\n({company})" if i == 0 else s
+            label = f"{s} ({company})" if company and i == 0 else s
             dot.node(f"S{i}", label)
         for i in range(len(stages) - 1):
             dot.edge(f"S{i}", f"S{i+1}")
@@ -104,17 +113,15 @@ if st.sidebar.button("Generate deal workflow"):
 
         # ── Download CSV ──
         df = pd.DataFrame({'stage': stages, 'tip': [tips[s] for s in stages]})
-        st.download_button(
-            "Download CSV", df.to_csv(index=False).encode(), "deal_workflow.csv", "text/csv"
-        )
+        st.download_button("Download CSV", df.to_csv(index=False).encode(), "deal_workflow.csv", "text/csv")
 
         # ── Download PDF ──
         buf = io.BytesIO()
         pdf = canvas.Canvas(buf, pagesize=letter)
         w, h = letter
         pdf.setFont("Helvetica-Bold", 14)
-        pdf.drawString(40, h-40, f"Floww Workflow for {company or 'Client'}")
-        y = h-80
+        pdf.drawString(40, h - 40, f"Floww Workflow for {company or 'Client'}")
+        y = h - 80
         pdf.setFont("Helvetica", 12)
         for i, s in enumerate(stages, 1):
             pdf.drawString(40, y, f"{i}. {s}")
@@ -123,12 +130,10 @@ if st.sidebar.button("Generate deal workflow"):
             y -= 28
             if y < 60:
                 pdf.showPage()
-                y = h-40
+                y = h - 40
         pdf.save()
         buf.seek(0)
-        st.download_button(
-            "Download PDF", buf, "deal_workflow.pdf", "application/pdf"
-        )
+        st.download_button("Download PDF", buf, "deal_workflow.pdf", "application/pdf")
 
 # Footer
 st.sidebar.markdown("---")
