@@ -90,32 +90,40 @@ if st.sidebar.button("Generate Next-Level Workflow"):
     stages = [s.stage for s in wf.workflow]
     tips   = {s.stage: s.tip for s in wf.workflow}
 
-    # 2️⃣ Generate Mermaid code via AI
-    mermaid_sys = (
-        "You are a code generator. "
-        "Generate a Mermaid.js flowchart code snippet only, no explanation."
-    )
-    mermaid_usr = (
-        f"Create a Mermaid flowchart for these stages in order: {stages}. "
-        f"Label the chart 'Floww Workflow for {company}'."
-    )
+       # ── Generate Advanced Mermaid Diagram via AI ─────────────────────────
+    mermaid_sys = """
+You are a sales operations architect and diagram expert. Output **only** a Mermaid.js flowchart snippet—no markdown fences, no commentary—meeting these requirements:
+
+1. Title the chart “Floww Workflow for {company}”.
+2. Group the workflow into three subgraphs:
+   - Pre-Sales: prospecting, qualification, research
+   - Sales: discovery call, proposal, negotiation
+   - Post-Sales: onboarding, post-sale engagement, upsell
+3. Use swimlanes to distinguish roles: SDR (Pre-Sales), AE (Sales), CSM (Post-Sales).
+4. Label each arrow with the key action (e.g., “Outbound Email”, “Demo Call”, “Contract Review”).
+5. Lay out the chart top-to-bottom.
+
+Keep it DRY and as concise as possible.
+"""
+
+    mermaid_usr = f"Here are the stages: {stages}."
+
     mresp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role":"system","content":mermaid_sys},
-            {"role":"user",  "content":mermaid_usr},
+            {"role": "system",  "content": mermaid_sys.strip().format(company=company)},
+            {"role": "user",    "content": mermaid_usr},
         ],
         temperature=0.0,
-        max_tokens=200,
+        max_tokens=300,
     )
     mermaid_code = mresp.choices[0].message.content.strip()
-    # Strip fences if any
-    mermaid_code = re.sub(r"^```(?:mermaid)?|```$", "", mermaid_code, flags=re.M)
+    # strip any backticks
+    mermaid_code = re.sub(r"^```mermaid|```$", "", mermaid_code, flags=re.M)
 
-    # Display Mermaid
-    st.subheader("AI-Generated Mermaid Diagram Code")
+    st.subheader("AI-Generated Advanced Mermaid Diagram Code")
     st.code(mermaid_code, language="")
-    st.subheader("Rendered Mermaid Diagram")
+    st.subheader("Rendered Advanced Mermaid Diagram")
     st.markdown(f"```mermaid\n{mermaid_code}\n```", unsafe_allow_html=True)
 
     # 3️⃣ Competitor Benchmarks
