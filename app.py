@@ -53,11 +53,11 @@ class ProposalModel(BaseModel):
 
 # ── Sidebar – Company info & presets ──────────────────
 st.sidebar.header("Company Info")
-company     = st.sidebar.text_input("Company name", "Acme Corp")
-website     = st.sidebar.text_input("Website URL (optional)")
-ticker      = st.sidebar.text_input("Stock ticker (optional)")
-industry    = st.sidebar.selectbox("Industry", ["Fintech","SaaS","Retail","Healthcare","Other"])
-persona     = st.sidebar.selectbox("Persona", ["Enterprise AE","SMB SDR","Partner Manager"])
+company   = st.sidebar.text_input("Company name", "Acme Corp")
+website   = st.sidebar.text_input("Website URL (optional)")
+ticker    = st.sidebar.text_input("Stock ticker (optional)")
+industry  = st.sidebar.selectbox("Industry", ["Fintech","SaaS","Retail","Healthcare","Other"])
+persona   = st.sidebar.selectbox("Persona", ["Enterprise AE","SMB SDR","Partner Manager"])
 
 # Fetch description / market cap when possible
 description = {
@@ -96,11 +96,9 @@ tab_wf, tab_prop = st.tabs(["Workflow","Proposal"])
 #                   WORKFLOW TAB                       #
 # -----------------------------------------------------#
 with tab_wf:
-
     if st.button("Generate Workflow"):
-        # ---- Call AI for workflow JSON ----
         system = ("You are an enterprise sales consultant. "
-                  "Return ONLY valid JSON: {'workflow':[{'stage':'','tip':''},…]}")
+                  "Return ONLY valid JSON: {\"workflow\":[{\"stage\":\"\",\"tip\":\"\"}]}")
         prompt = (f"Build a deal-closing workflow for a {persona} at {company}. "
                   f"Company description: {description[:200]}. "
                   f"Industry: {industry}. Market cap: {market_cap or 'N/A'}.")
@@ -108,7 +106,8 @@ with tab_wf:
             model="gpt-4o-mini",
             messages=[{"role":"system","content":system},
                       {"role":"user","content":prompt}],
-            temperature=0.0, max_tokens=600)
+            temperature=0.0, max_tokens=600
+        )
         raw = resp.choices[0].message.content
         match = re.search(r"{.*}", raw, re.S)
         if not match:
@@ -120,9 +119,8 @@ with tab_wf:
             st.error("Invalid JSON"); st.code(wf_json); st.error(str(e)); st.stop()
         st.session_state["wf_json"] = wf_json
         st.session_state["stages"]  = [s.stage for s in wf.workflow]
-        st.session_state["tips"]    = {s.stage:s.tip for s in wf.workflow}
+        st.session_state["tips"]    = {s.stage: s.tip for s in wf.workflow}
 
-    # ---- Editable JSON area ----
     if "wf_json" in st.session_state:
         st.subheader("Edit workflow JSON (live)")
         new_json = st.text_area("JSON", st.session_state["wf_json"], height=200)
@@ -131,10 +129,9 @@ with tab_wf:
                 wf = WorkflowModel.parse_raw(new_json)
                 st.session_state["wf_json"] = new_json
                 st.session_state["stages"]  = [s.stage for s in wf.workflow]
-                st.session_state["tips"]    = {s.stage:s.tip for s in wf.workflow}
+                st.session_state["tips"]    = {s.stage: s.tip for s in wf.workflow}
             except: st.error("Invalid JSON")
 
-    # ---- Mermaid diagram ----
     if "stages" in st.session_state:
         theme = "%%{init:{'themeVariables':{'primaryColor':'#00ADEF','lineColor':'#888'}}}%%\n"
         sys_d = "You are a diagram expert. Return Mermaid flowchart only."
@@ -143,14 +140,14 @@ with tab_wf:
             model="gpt-4o-mini",
             messages=[{"role":"system","content":sys_d},
                       {"role":"user","content":usr_d}],
-            temperature=0.0, max_tokens=200).choices[0].message.content
+            temperature=0.0, max_tokens=200
+        ).choices[0].message.content
         mcode = re.sub(r"^```(?:mermaid)?|```$","",mcode,flags=re.M).strip()
         full_code = theme + mcode
         st.markdown("##### Mermaid Diagram")
         st.code(full_code)
         st.markdown(f"```mermaid\n{full_code}\n```", unsafe_allow_html=True)
 
-    # ---- Benchmarks & Playbook & PPTX ----
     if "stages" in st.session_state:
         if competitor != "None":
             bench = {
@@ -165,28 +162,28 @@ with tab_wf:
             df = pd.read_csv(crm_file)
             play=[]
             for _,row in df.iterrows():
-                tipq=f"Lead data: {row.to_dict()}. Suggest next step."
+                q=f"Lead data: {row.to_dict()}. Suggest next step."
                 ans=client.chat.completions.create(
                     model="gpt-4o-mini",
-                    messages=[{"role":"user","content":tipq}],
+                    messages=[{"role":"user","content":q}],
                     temperature=0.7,max_tokens=100
                 ).choices[0].message.content
                 play.append({**row.to_dict(),"suggestion":ans})
             st.markdown("#### Personalized Playbook from CRM")
             st.dataframe(pd.DataFrame(play))
 
-        if pptx_ok and "tips" in st.session_state:
-            prs=Presentation()
-            sl=prs.slides.add_slide(prs.slide_layouts[0])
-            sl.shapes.title.text=f"Floww Playbook: {company}"
+        if pptx_ok:
+            prs = Presentation()
+            title_slide = prs.slides.add_slide(prs.slide_layouts[0])
+            title_slide.shapes.title.text = f"Floww Playbook: {company}"
             for s in st.session_state["stages"]:
-                sld=prs.slides.add_slide(prs.slide_layouts[1])
-                sld.shapes.title.text=s
-                sld.placeholders[1].text=st.session_state['tips'][s]
-            buf=io.BytesIO(); prs.save(buf); buf.seek(0)
+                sl = prs.slides.add_slide(prs.slide_layouts[1])
+                sl.shapes.title.text = s
+                sl.placeholders[1].text = st.session_state["tips"][s]
+            buf = io.BytesIO(); prs.save(buf); buf.seek(0)
             st.download_button("Download PPTX Playbook", buf,
-                "floww_playbook.pptx",
-                "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+                               "floww_playbook.pptx",
+                               "application/vnd.openxmlformats-officedocument.presentationml.presentation")
 
 # -----------------------------------------------------#
 #                      PROPOSAL TAB                    #
@@ -194,10 +191,9 @@ with tab_wf:
 with tab_prop:
     st.subheader("Generate Proposal")
 
-    # ---- Client basics ----
-    col1,col2=st.columns(2)
+    col1, col2 = st.columns(2)
     with col1:
-        client_name=st.text_input("Proposal for (client)", key="client")
+        client_name = st.text_input("Proposal for (client)", key="client")
     with col2:
         prop_date = st.date_input("Date", date.today())
 
@@ -207,31 +203,29 @@ with tab_prop:
         height=100
     )
 
-    # ---- Pricing data_editor ----
     st.markdown("#### Pricing Table")
     if "price_table" not in st.session_state:
-        st.session_state["price_table"]=pd.DataFrame(
+        st.session_state["price_table"] = pd.DataFrame(
             [{"Item":"Integration","Qty":1,"Unit":"Lot","Unit Price":10000}]
         )
 
-    # Preset buttons
-    p1,p2,p3=st.columns(3)
+    p1,p2,p3 = st.columns(3)
     with p1:
         if st.button("🌱 Starter"):
-            st.session_state["price_table"]=pd.DataFrame([
+            st.session_state["price_table"] = pd.DataFrame([
                 {"Item":"Discovery","Qty":1,"Unit":"Lot","Unit Price":5000},
                 {"Item":"Integration","Qty":1,"Unit":"Lot","Unit Price":20000},
             ])
     with p2:
         if st.button("🚀 Growth"):
-            st.session_state["price_table"]=pd.DataFrame([
+            st.session_state["price_table"] = pd.DataFrame([
                 {"Item":"Discovery","Qty":1,"Unit":"Lot","Unit Price":10000},
                 {"Item":"Integration","Qty":1,"Unit":"Lot","Unit Price":50000},
                 {"Item":"Training","Qty":1,"Unit":"Lot","Unit Price":15000},
             ])
     with p3:
         if st.button("🏢 Enterprise"):
-            st.session_state["price_table"]=pd.DataFrame([
+            st.session_state["price_table"] = pd.DataFrame([
                 {"Item":"Enterprise License (12 mo)","Qty":1,"Unit":"Lot","Unit Price":120000},
                 {"Item":"Dedicated CSM","Qty":1,"Unit":"Yr","Unit Price":30000},
             ])
@@ -242,11 +236,10 @@ with tab_prop:
         use_container_width=True,
         key="price_editor"
     )
-    price_df["Subtotal"]=price_df["Qty"]*price_df["Unit Price"]
+    price_df["Subtotal"] = price_df["Qty"] * price_df["Unit Price"]
     total = price_df["Subtotal"].sum()
     st.metric("Grand Total", f"${total:,.0f}")
 
-    # ---- Generate proposal ----
     if st.button("Generate Proposal", type="primary"):
         with st.spinner("Crafting proposal with Floww AI …"):
             sys_p = ("You are an expert sales engineer. "
@@ -267,35 +260,35 @@ with tab_prop:
                           {"role":"user","content":usr_p}],
                 temperature=0.2, max_tokens=750
             ).choices[0].message.content
+
         try:
-            prop = ProposalModel.parse_raw(prop_raw)
+            proposal = ProposalModel.parse_raw(prop_raw)
         except ValidationError as e:
             st.error("AI returned invalid JSON"); st.code(prop_raw); st.error(str(e)); st.stop()
 
         st.success("Proposal generated ✔︎")
-        st.markdown(f"## {prop.title}")
-        st.markdown(f"### Executive Summary\n{prop.executive_summary}")
-        st.markdown(f"### Background\n{prop.background}")
-        st.markdown(f"### Solution Overview\n{prop.solution_overview}")
+        st.markdown(f"## {proposal.title}")
+        st.markdown(f"### Executive Summary\n{proposal.executive_summary}")
+        st.markdown(f"### Background\n{proposal.background}")
+        st.markdown(f"### Solution Overview\n{proposal.solution_overview}")
         st.markdown("### Deliverables")
-        st.markdown("\n".join([f"- {d}" for d in prop.deliverables]))
+        st.markdown("\n".join([f"- {d}" for d in proposal.deliverables]))
         st.markdown("### Pricing")
-        display_df = pd.DataFrame(prop.pricing)
+        display_df = pd.DataFrame(proposal.pricing)
         st.table(display_df)
-        st.markdown(f"### Next Steps\n{prop.next_steps}")
+        st.markdown(f"### Next Steps\n{proposal.next_steps}")
 
-                  # ---- PDF export ----
+        # ---- PDF export ----
         buf = io.BytesIO()
         c   = canvas.Canvas(buf, pagesize=letter)
         w, h = letter
         y = h - 40
 
         def add_text(text, y_pos, indent=40, leading=14):
-            """Write multiline text; return updated y-position."""
-            for line in text.split("\n"):
+            for line in text.split("\\n"):
                 c.drawString(indent, y_pos, line)
                 y_pos -= leading
-                if y_pos < 60:                 # new page
+                if y_pos < 60:
                     c.showPage()
                     y_pos = h - 40
             return y_pos
@@ -313,14 +306,13 @@ with tab_prop:
             y = add_text(getattr(proposal, sec), y, 50)
             y -= 10
 
-        # Pricing table
         c.setFont("Helvetica-Bold", 12)
         y = add_text("Pricing:", y, 40)
         y -= 5
         for row in display_df.itertuples(index=False):
             line = f"{row.Item} ×{row.Qty} {row.Unit} … ${row._4:,.0f}"
             y = add_text(line, y, 50)
-        y = add_text(f"Grand Total: ${total:,.0f}", y, 50)
+        add_text(f"Grand Total: ${total:,.0f}", y, 50)
 
         c.save()
         buf.seek(0)
@@ -330,7 +322,6 @@ with tab_prop:
             "proposal.pdf",
             "application/pdf"
         )
-)
 
 # ── Footer ───────────────────────────────────────────
 st.sidebar.markdown("---")
