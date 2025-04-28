@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      OPENAI_API_KEY: "TEST_KEY"  # Dummy key to let Streamlit boot
+      OPENAI_API_KEY: "TEST_KEY"  # Dummy: lets Streamlit boot for smoke-test
 
     steps:
       - uses: actions/checkout@v3
@@ -31,4 +31,5 @@ jobs:
         run: |
           nohup streamlit run app.py --server.port 8501 &> /dev/null &
           sleep 10
-          curl --fail http://localhost:8501 || { echo "App failed to start"; exit 1; }
+          curl --fail http://localhost:8501 \
+            || { echo "App failed to start"; exit 1; }
