@@ -239,50 +239,55 @@ with tab_prop:
     total = price_df["Subtotal"].sum()
     st.metric("Grand Total", f"${total:,.0f}")
 
-      if st.button("Generate Proposal", type="primary"):
-        # ---- convert dtypes to native Python before JSON ----
-        price_records = price_df[["Item", "Qty", "Unit", "Unit Price"]].copy()
+    if st.button("Generate Proposal", type="primary"):
+        # ---- clean pricing to Python types ----
+        price_records = price_df[["Item","Qty","Unit","Unit Price"]].copy()
         price_records["Qty"]        = price_records["Qty"].astype(int)
         price_records["Unit Price"] = price_records["Unit Price"].astype(float)
+        records = price_records.to_dict(orient="records")
 
-        # NumPy scalars -> native int/float
-        price_records_list = [
-            {k: (v.item() if hasattr(v, "item") else v)
-             for k, v in row.items()}
-            for row in price_records.to_dict(orient="records")
+        # ---- build a plain-text user prompt ----
+        lines = [
+            f"Client: {client_name}",
+            f"Company: {company}",
+            f"Date: {prop_date}",
+            "",
+            "Deliverables:"
         ]
+        lines += [f"- {d}" for d in deliverables_txt.splitlines()]
+        lines += ["", "Pricing:"]
+        for r in records:
+            lines.append(f"- {r['Item']}, Qty: {r['Qty']}, Unit: {r['Unit']}, Price: ${r['Unit Price']:,}")
+        lines.append(f"\nTotal: ${total:,.0f}")
+
+        user_msg = "\n".join(lines)
+        sys_msg  = (
+            "You are an expert sales engineer. "
+            "Return ONLY valid JSON with keys: "
+            "title, executive_summary, background, solution_overview, "
+            "deliverables, pricing, next_steps."
+        )
 
         with st.spinner("Crafting proposal with Floww AI …"):
-            sys_p = ("You are an expert sales engineer. "
-                     "Return ONLY valid JSON with keys: "
-                     "title, executive_summary, background, solution_overview, "
-                     "deliverables, pricing, next_steps.")
-            usr_p = json.dumps(
-                {
-                    "client": client_name,
-                    "company": company,
-                    "date": str(prop_date),
-                    "deliverables": deliverables_txt.splitlines(),
-                    "pricing": price_records_list,
-                    "total": float(total),
-                },
-                default=str,
-            )
-            prop_raw = client.chat.completions.create(
+            resp = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": sys_p},
-                    {"role": "user", "content": usr_p},
+                    {"role":"system","content":sys_msg},
+                    {"role":"user",  "content":user_msg}
                 ],
                 temperature=0.2,
                 max_tokens=750,
-            ).choices[0].message.content
+            )
+        prop_raw = resp.choices[0].message.content
 
-
+        # ---- parse & render ----
         try:
             proposal = ProposalModel.parse_raw(prop_raw)
         except ValidationError as e:
-            st.error("AI returned invalid JSON"); st.code(prop_raw); st.error(str(e)); st.stop()
+            st.error("AI returned invalid JSON")
+            st.code(prop_raw, language="json")
+            st.error(str(e))
+            st.stop()
 
         st.success("Proposal generated ✔︎")
         st.markdown(f"## {proposal.title}")
@@ -290,11 +295,49 @@ with tab_prop:
         st.markdown(f"### Background\n{proposal.background}")
         st.markdown(f"### Solution Overview\n{proposal.solution_overview}")
         st.markdown("### Deliverables")
-        st.markdown("\n".join([f"- {d}" for d in proposal.deliverables]))
+        st.markdown("\n".join(f"- {d}" for d in proposal.deliverables))
         st.markdown("### Pricing")
         display_df = pd.DataFrame(proposal.pricing)
         st.table(display_df)
         st.markdown(f"### Next Steps\n{proposal.next_steps}")
+
+        # ---- PDF export (unchanged) ----
+        buf = io.BytesIO()
+        c   = canvas.Canvas(buf, pagesize=letter)
+        w, h = letter
+        y = h - 40
+        def add_text(text, y_pos, indent=40, leading=14):
+            for line in text.split("\n"):
+                c.drawString(indent, y_pos, line)
+                y_pos -= leading
+                if y_pos < 60:
+                    c.showPage()
+                    y_pos = h - 40
+            return y_pos
+
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(40, y, proposal.title)
+        y -= 25
+        c.setFont("Helvetica", 12)
+        for sec in ["executive_summary","background","solution_overview","next_steps"]:
+            c.setFont("Helvetica-Bold", 12)
+            y = add_text(sec.replace("_"," ").title()+":", y, 40)
+            y -= 5
+            c.setFont("Helvetica", 12)
+            y = add_text(getattr(proposal,sec), y, 50)
+            y -= 10
+
+        c.setFont("Helvetica-Bold", 12)
+        y = add_text("Pricing:", y, 40)
+        y -= 5
+        for row in display_df.itertuples(index=False):
+            line = f"{row.Item} ×{row.Qty} {row.Unit} … ${row._4:,.0f}"
+            y = add_text(line, y, 50)
+        add_text(f"Grand Total: ${total:,.0f}", y, 50)
+
+        c.save(); buf.seek(0)
+        st.download_button("Download Proposal PDF", buf, "proposal.pdf", "application/pdf")
+
 
         # ---- PDF export ----
         buf = io.BytesIO()
