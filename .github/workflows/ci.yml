@@ -1,14 +1,15 @@
 name: CI
 
 on:
-  - push
-  - pull_request
+  push:
+  pull_request:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      OPENAI_API_KEY: "TEST_KEY"  # Dummy: lets Streamlit boot for smoke-test
+      OPENAI_API_KEY: "TEST_KEY"   # dummy for smoke-test
+      CLEARBIT_KEY: "TEST_KEY"     # dummy for Clearbit calls
 
     steps:
       - uses: actions/checkout@v3
@@ -30,6 +31,5 @@ jobs:
       - name: Smoke-test Streamlit app
         run: |
           nohup streamlit run app.py --server.port 8501 &> /dev/null &
-          sleep 10
-          curl --fail http://localhost:8501 \
-            || { echo "App failed to start"; exit 1; }
+          sleep 15
+          curl --fail http://localhost:8501 || exit 1
