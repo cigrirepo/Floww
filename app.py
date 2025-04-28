@@ -284,21 +284,53 @@ with tab_prop:
         st.table(display_df)
         st.markdown(f"### Next Steps\n{prop.next_steps}")
 
-        # ---- PDF export ----
+               # ---- PDF export ----
         buf = io.BytesIO()
-        c = canvas.Canvas(buf, pagesize=letter)
-        w,h = letter; y=h-40
-        def add_text(txt, indent=40, leading=14):
+        c   = canvas.Canvas(buf, pagesize=letter)
+        w, h = letter
+        y = h - 40
+
+        def add_text(text, indent=40, leading=14):
+            """Write multiline text to PDF, auto-paginate."""
             nonlocal y
-            for line in txt.split('\\n'):
-                c.drawString(indent,y,line); y-=leading
-                if y<60: c.showPage(); y=h-40
-        c.setFont("Helvetica-Bold",16); c.drawString(40,y, prop.title); y-=25
-        c.setFont("Helvetica",12)
-        for sec in ["executive_summary","background","solution_overview","next_steps"]:
-            c.setFont("Helvetica-Bold",12); add_text(sec.replace('_',' ').title()+\":\",40); y-=5
-            c.setFont("Helvetica",12); add_text(getattr(prop,sec),50); y-=10
-        c.setFont("Helvetica-Bold",12); add_text("Pricing:",40); y-=5
-        for r in display_df.itertuples(index=False):
-            add_text(f\"{r.Item} x{r.Qty} {r.Unit}  …  ${r._4:,.0f}\",50)\n            y-=5
-        add_text(f\"Grand Total: ${total:,.0f}\",50)\n        c.save(); buf.seek(0)\n        st.download_button(\"Download Proposal PDF\", buf, \"proposal.pdf\", \"application/pdf\")\n\n# ── Footer ───────────────────────────────────────────\nst.sidebar.markdown(\"---\")\nst.sidebar.markdown(\"Powered by Adam Cigri & OpenAI\")```
+            for line in text.split("\n"):
+                c.drawString(indent, y, line)
+                y -= leading
+                if y < 60:     # new page
+                    c.showPage()
+                    y = h - 40
+
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(40, y, proposal.title)
+        y -= 25
+        c.setFont("Helvetica", 12)
+
+        for sec in ["executive_summary", "background", "solution_overview", "next_steps"]:
+            c.setFont("Helvetica-Bold", 12)
+            add_text(sec.replace("_", " ").title() + ":", 40)
+            y -= 5
+            c.setFont("Helvetica", 12)
+            add_text(getattr(proposal, sec), 50)
+            y -= 10
+
+        # Pricing
+        c.setFont("Helvetica-Bold", 12)
+        add_text("Pricing:", 40)
+        y -= 5
+        for row in display_df.itertuples(index=False):
+            add_text(f"{row.Item} ×{row.Qty} {row.Unit} … ${row._4:,.0f}", 50)
+            y -= 5
+
+        add_text(f"Grand Total: ${total:,.0f}", 50)
+        c.save()
+        buf.seek(0)
+        st.download_button(
+            "Download Proposal PDF",
+            buf,
+            "proposal.pdf",
+            "application/pdf"
+        )
+
+# ── Footer ───────────────────────────────────────────
+st.sidebar.markdown("---")
+st.sidebar.markdown("Powered by Adam Cigri & OpenAI")
