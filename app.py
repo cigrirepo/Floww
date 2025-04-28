@@ -1,12 +1,12 @@
 # app.py
 # Floww – AI-powered Deal Workflow & Proposal Generator
 # ====================================================
-# • Real-company enrichment (ticker / Clearbit)
-# • Two-pane tabs (Workflow | Proposal)
-# • Advanced Mermaid diagrams with theming + JSON editor
-# • Competitor benchmarks, CRM playbook, PPTX export
-# • Spreadsheet-style pricing grid, presets, totals
-# • AI-generated proposal → PDF export
+#  • Real-company enrichment (ticker / Clearbit)
+#  • Two-pane tabs (Workflow | Proposal)
+#  • Advanced Mermaid diagrams with theming + JSON editor
+#  • Competitor benchmarks, CRM playbook, PPTX export
+#  • Spreadsheet-style pricing grid, presets, totals
+#  • AI-generated proposal → PDF export
 
 import io, os, re, json
 from datetime import date
@@ -83,7 +83,7 @@ elif website and clearbit_key:
         description = r.json().get("description", description)
     except: pass
 
-# Other sidebar bits
+# Sidebar extras
 st.sidebar.header("Advanced Options")
 crm_file   = st.sidebar.file_uploader("CRM CSV (lead,stage,probability)", type="csv")
 competitor = st.sidebar.selectbox("Competitor Benchmark", ["None","Visa","Stripe","Amex"])
@@ -148,42 +148,41 @@ with tab_wf:
         st.code(full_code)
         st.markdown(f"```mermaid\n{full_code}\n```", unsafe_allow_html=True)
 
-    if "stages" in st.session_state:
-        if competitor != "None":
-            bench = {
-              "Visa":["Prospecting","KYC Check","Regulatory Review"],
-              "Stripe":["API Integration Pilot","Sandbox Testing"],
-              "Amex":["Regulatory Compliance","Fraud Assessment"]
-            }
-            st.markdown(f"#### Benchmark vs {competitor}")
-            st.write(bench.get(competitor, []))
+    if "stages" in st.session_state and competitor != "None":
+        bench = {
+          "Visa":["Prospecting","KYC Check","Regulatory Review"],
+          "Stripe":["API Integration Pilot","Sandbox Testing"],
+          "Amex":["Regulatory Compliance","Fraud Assessment"]
+        }
+        st.markdown(f"#### Benchmark vs {competitor}")
+        st.write(bench.get(competitor, []))
 
-        if crm_file:
-            df = pd.read_csv(crm_file)
-            play=[]
-            for _,row in df.iterrows():
-                q=f"Lead data: {row.to_dict()}. Suggest next step."
-                ans=client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role":"user","content":q}],
-                    temperature=0.7,max_tokens=100
-                ).choices[0].message.content
-                play.append({**row.to_dict(),"suggestion":ans})
-            st.markdown("#### Personalized Playbook from CRM")
-            st.dataframe(pd.DataFrame(play))
+    if "stages" in st.session_state and crm_file:
+        df = pd.read_csv(crm_file)
+        play=[]
+        for _,row in df.iterrows():
+            q=f"Lead data: {row.to_dict()}. Suggest next step."
+            ans=client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role":"user","content":q}],
+                temperature=0.7,max_tokens=100
+            ).choices[0].message.content
+            play.append({**row.to_dict(),"suggestion":ans})
+        st.markdown("#### Personalized Playbook from CRM")
+        st.dataframe(pd.DataFrame(play))
 
-        if pptx_ok:
-            prs = Presentation()
-            title_slide = prs.slides.add_slide(prs.slide_layouts[0])
-            title_slide.shapes.title.text = f"Floww Playbook: {company}"
-            for s in st.session_state["stages"]:
-                sl = prs.slides.add_slide(prs.slide_layouts[1])
-                sl.shapes.title.text = s
-                sl.placeholders[1].text = st.session_state["tips"][s]
-            buf = io.BytesIO(); prs.save(buf); buf.seek(0)
-            st.download_button("Download PPTX Playbook", buf,
-                               "floww_playbook.pptx",
-                               "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+    if "stages" in st.session_state and pptx_ok:
+        prs = Presentation()
+        title_slide = prs.slides.add_slide(prs.slide_layouts[0])
+        title_slide.shapes.title.text = f"Floww Playbook: {company}"
+        for s in st.session_state["stages"]:
+            sl = prs.slides.add_slide(prs.slide_layouts[1])
+            sl.shapes.title.text = s
+            sl.placeholders[1].text = st.session_state["tips"][s]
+        buf = io.BytesIO(); prs.save(buf); buf.seek(0)
+        st.download_button("Download PPTX Playbook", buf,
+                           "floww_playbook.pptx",
+                           "application/vnd.openxmlformats-officedocument.presentationml.presentation")
 
 # -----------------------------------------------------#
 #                      PROPOSAL TAB                    #
@@ -241,6 +240,12 @@ with tab_prop:
     st.metric("Grand Total", f"${total:,.0f}")
 
     if st.button("Generate Proposal", type="primary"):
+        # ---- convert dtypes to native Python before JSON ----
+        price_records = price_df[["Item","Qty","Unit","Unit Price"]].copy()
+        price_records["Qty"]        = price_records["Qty"].astype(int)
+        price_records["Unit Price"] = price_records["Unit Price"].astype(float)
+        price_records_list = price_records.to_dict(orient="records")
+
         with st.spinner("Crafting proposal with Floww AI …"):
             sys_p = ("You are an expert sales engineer. "
                      "Return ONLY valid JSON with keys: "
@@ -251,14 +256,16 @@ with tab_prop:
                 "company": company,
                 "date": str(prop_date),
                 "deliverables": deliverables_txt.splitlines(),
-                "pricing": price_df[["Item","Qty","Unit","Unit Price"]].to_dict(orient="records"),
-                "total": total
-            })
+                "pricing": price_records_list,
+                "total": float(total)
+            }, default=str)
+
             prop_raw = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role":"system","content":sys_p},
                           {"role":"user","content":usr_p}],
-                temperature=0.2, max_tokens=750
+                temperature=0.2,
+                max_tokens=750
             ).choices[0].message.content
 
         try:
