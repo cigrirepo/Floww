@@ -284,21 +284,21 @@ with tab_prop:
         st.table(display_df)
         st.markdown(f"### Next Steps\n{prop.next_steps}")
 
-               # ---- PDF export ----
+                  # ---- PDF export ----
         buf = io.BytesIO()
         c   = canvas.Canvas(buf, pagesize=letter)
         w, h = letter
         y = h - 40
 
-        def add_text(text, indent=40, leading=14):
-            """Write multiline text to PDF, auto-paginate."""
-            nonlocal y
+        def add_text(text, y_pos, indent=40, leading=14):
+            """Write multiline text; return updated y-position."""
             for line in text.split("\n"):
-                c.drawString(indent, y, line)
-                y -= leading
-                if y < 60:     # new page
+                c.drawString(indent, y_pos, line)
+                y_pos -= leading
+                if y_pos < 60:                 # new page
                     c.showPage()
-                    y = h - 40
+                    y_pos = h - 40
+            return y_pos
 
         c.setFont("Helvetica-Bold", 16)
         c.drawString(40, y, proposal.title)
@@ -307,21 +307,21 @@ with tab_prop:
 
         for sec in ["executive_summary", "background", "solution_overview", "next_steps"]:
             c.setFont("Helvetica-Bold", 12)
-            add_text(sec.replace("_", " ").title() + ":", 40)
+            y = add_text(sec.replace("_", " ").title() + ":", y, 40)
             y -= 5
             c.setFont("Helvetica", 12)
-            add_text(getattr(proposal, sec), 50)
+            y = add_text(getattr(proposal, sec), y, 50)
             y -= 10
 
-        # Pricing
+        # Pricing table
         c.setFont("Helvetica-Bold", 12)
-        add_text("Pricing:", 40)
+        y = add_text("Pricing:", y, 40)
         y -= 5
         for row in display_df.itertuples(index=False):
-            add_text(f"{row.Item} ×{row.Qty} {row.Unit} … ${row._4:,.0f}", 50)
-            y -= 5
+            line = f"{row.Item} ×{row.Qty} {row.Unit} … ${row._4:,.0f}"
+            y = add_text(line, y, 50)
+        y = add_text(f"Grand Total: ${total:,.0f}", y, 50)
 
-        add_text(f"Grand Total: ${total:,.0f}", 50)
         c.save()
         buf.seek(0)
         st.download_button(
@@ -330,6 +330,7 @@ with tab_prop:
             "proposal.pdf",
             "application/pdf"
         )
+)
 
 # ── Footer ───────────────────────────────────────────
 st.sidebar.markdown("---")
