@@ -1,5 +1,10 @@
+# app.py  
+# Floww – AI-powered Deal Workflow Generator (v2 with advanced features)  
+# ===============================================================  
+# Includes: CSV upload playbook, competitor templates, PPTX export, persona-specific tips
+
 import io, os, json
-from typing import List, Dict
+from typing import List, Dict, Optional
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -9,131 +14,120 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from graphviz import Digraph
 import matplotlib.pyplot as plt
+from pptx import Presentation
+from pptx.util import Inches, Pt
 
-# ── UI config ─────────────────────────────────────────
+# ── CONFIG ─────────────────────────────────────────────
 st.set_page_config(page_title="Floww", layout="wide")
-st.title("Floww")
-st.caption("AI-powered custom deal-workflow generator")
+st.title("Floww Advanced")
+st.caption("Deal workflows + personalized playbooks, competitor benchmarks, PPTX export & personas")
 
-# ── OpenAI client ────────────────────────────────────
+# ── CLIENTS & MODELS ───────────────────────────────────
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
-    st.error("OPENAI_API_KEY missing.")
+    st.error("Missing OPENAI_API_KEY")
     st.stop()
 client = OpenAI(api_key=api_key)
 
-# ── Pydantic models ──────────────────────────────────
-class StageModel(BaseModel):
-    stage: str
-    tip:   str
-class WorkflowModel(BaseModel):
-    workflow: List[StageModel]
+# ── Pydantic ───────────────────────────────────────────
+class StageModel(BaseModel): stage: str; tip: str
+class WorkflowModel(BaseModel): workflow: List[StageModel]
 
-# ── Sidebar inputs ───────────────────────────────────
-st.sidebar.header("Deal parameters")
-company      = st.sidebar.text_input("Company name (optional)")
-industry     = st.sidebar.selectbox("Industry",    ["Fintech","SaaS","Retail","Healthcare","Other"])
-client_type  = st.sidebar.selectbox("Client type", ["SMB","Mid-Market","Enterprise"])
-deal_amount  = st.sidebar.number_input("Deal amount (USD)", 1_000, value=200_000, step=10_000)
-months_close = st.sidebar.slider("Months to close", 1, 24, 11)
-discount     = st.sidebar.slider("Discount rate (annual %)", 0.0, 20.0, 8.0)
+# ── Sidebar / Inputs ───────────────────────────────────
+st.sidebar.header("Input options")
+# Base workflow
+company = st.sidebar.text_input("Company name", "Acme Corp")
+industry = st.sidebar.selectbox("Industry", ["Fintech","SaaS","Retail","Healthcare","Other"])
+persona = st.sidebar.selectbox("Persona","Enterprise AE,SMB SDR,Partner Manager".split(","))
 
-# Bucket for prompt
-bucket = ("<100K" if deal_amount<100_000 else
-          "100K-500K" if deal_amount<500_000 else
-          "500K-1M"   if deal_amount<1_000_000 else
-          "1M-5M"     if deal_amount<5_000_000 else ">5M")
+# CSV upload for playbook
+st.sidebar.subheader("Upload CRM CSV for Playbook")
+crm_file = st.sidebar.file_uploader("CSV: lead,stage,probability", type="csv")
 
-# ── Generate button ──────────────────────────────────
-if st.sidebar.button("Generate deal workflow"):
-    with st.spinner("Calling Floww AI…"):
-        system_msg = (
-            "You are an enterprise sales consultant. "
-            "Output ONLY valid JSON: {\"workflow\":[{\"stage\":\"\",\"tip\":\"\"},…]}"
-        )
-        user_msg = (f"Generate a deal-closing workflow for '{company or 'a client'}' in {industry}. "
-                    f"Client type={client_type}. Deal size bucket={bucket}.")
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role":"system","content":system_msg},
-                      {"role":"user","content":user_msg}],
-            temperature=0.0,
-            max_tokens=800,
-        )
-        raw = resp.choices[0].message.content
+# Competitor benchmarking templates
+st.sidebar.subheader("Select Competitor Template")
+competitor = st.sidebar.selectbox("Benchmark vs.", ["None","Visa","Stripe","Amex"])
 
-    # ── Parse JSON safely ────────────────────────────
-    try:
-        wf = WorkflowModel.parse_raw(raw)
-    except ValidationError:
-        st.error("JSON schema validation failed. Raw output:")
-        st.code(raw, language="json")
-        st.stop()
+# PPTX export toggle
+pptx_export = st.sidebar.checkbox("Enable PPTX Export", True)
 
-    stages = [s.stage for s in wf.workflow]
-    tips   = {s.stage: s.tip for s in wf.workflow}
-
-    # ── Mermaid code & render ────────────────────────
-    mermaid_code = "flowchart TD\n" + "\n".join(
-        f"  S{i}[{stages[i]}] --> S{i+1}[{stages[i+1]}]"
-        for i in range(len(stages)-1)
+# Generate
+if st.sidebar.button("Generate Advanced Workflow"):
+    # 1️⃣ Generate base workflow via AI
+    prompt = (
+        f"Persona: {persona}. Company: {company}. Industry: {industry}. "
+        "Return JSON {'workflow':[{'stage':'','tip':''}, ... ]}."
     )
-    st.subheader("Mermaid diagram")
-    st.code(f"```mermaid\n{mermaid_code}\n```")
-    st.download_button("Download .mmd", mermaid_code.encode(),
-                       "workflow.mmd", "text/plain")
-    st.markdown(f"```mermaid\n{mermaid_code}\n```", unsafe_allow_html=True)
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini", messages=[{"role":"user","content":prompt}], temperature=0.0, max_tokens=800)
+    data_raw = resp.choices[0].message.content
+    try:
+        wf = WorkflowModel.parse_raw(data_raw)
+    except ValidationError:
+        st.error("AI JSON parse error")
+        st.code(data_raw)
+        st.stop()
+    stages = [s.stage for s in wf.workflow]
+    tips = {s.stage:s.tip for s in wf.workflow}
 
-    # ── Graphviz fallback ────────────────────────────
-    dot = Digraph()
-    for i,s in enumerate(stages): dot.node(f"S{i}", s)
-    for i in range(len(stages)-1): dot.edge(f"S{i}", f"S{i+1}")
-    st.graphviz_chart(dot.source)
+    # 2️⃣ Render and show competitor template if selected
+    if competitor != "None":
+        # simplistic hardcoded benchmarks
+        bench = {
+            'Visa': ['Prospecting','KYC Check','Regulatory Review'],
+            'Stripe': ['API Integration Pilot','Sandbox Testing'],
+            'Amex': ['Regulatory Compliance','Fraud Assessment']
+        }
+        st.subheader(f"Benchmark Stages vs. {competitor}")
+        st.write(bench.get(competitor, []))
 
-    # ── Tips list ────────────────────────────────────
-    st.subheader("Best-Practice Tips")
+    # 3️⃣ Upload CSV playbook: AI-enhanced tips per record
+    if crm_file:
+        df_crm = pd.read_csv(crm_file)
+        playbook = []
+        for idx,row in df_crm.iterrows():
+            lp = row.to_dict()
+            # simple AI call per lead (batch for real use)
+            p_prompt = f"Lead data: {lp}. Suggest next-step tip."
+            tip_resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user","content":p_prompt}], temperature=0.7)
+            playbook.append({**lp,'suggestion': tip_resp.choices[0].message.content})
+        st.subheader("Personalized Playbook from CRM")
+        st.dataframe(pd.DataFrame(playbook))
+
+    # 4️⃣ Build PPTX if opted
+    if pptx_export:
+        prs = Presentation()
+        # Title slide
+        slide = prs.slides.add_slide(prs.slide_layouts[0])
+        slide.shapes.title.text = f"Floww Playbook: {company}"
+        # One slide per stage
+        for s in stages:
+            slide = prs.slides.add_slide(prs.slide_layouts[1])
+            slide.shapes.title.text = s
+            body = slide.shapes.placeholders[1].text_frame
+            body.text = tips[s]
+        bio = io.BytesIO()
+        prs.save(bio); bio.seek(0)
+        st.download_button("Download PPTX Playbook", bio, "floww_playbook.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+
+    # Show core workflow
+    st.subheader("Workflow Stages & Tips")
     for s in stages:
-        st.markdown(f"**{s}** — {tips[s]}")
-
-    # ── What-If: revenue timeline & NPV ──────────────
-    st.subheader("What-If: Revenue timeline & NPV")
-    years = months_close/12
-    discount_factor = (1 + discount/100) ** (-years)
-    npv = deal_amount * discount_factor
-    st.write(f"**Expected deal amount:** ${deal_amount:,.0f}")
-    st.write(f"**Months to close:** {months_close}  (~{years:.1f} years)")
-    st.write(f"**Discount rate:** {discount:.1f}%  →  **NPV:** "
-             f"${npv:,.0f}")
-
-    # simple timeline cash-flow chart
-    t = np.linspace(0, years, 100)
-    cash = np.where(t>=years, deal_amount, 0)
-    fig, ax = plt.subplots()
-    ax.plot(t, cash)
-    ax.set_xlabel("Years")
-    ax.set_ylabel("Cash inflow ($)")
-    ax.set_title("Projected cash receipt")
-    st.pyplot(fig)
-
-    # ── Downloads ───────────────────────────────────
-    df = pd.DataFrame({"stage": stages,
-                       "tip":   [tips[s] for s in stages]})
-    st.download_button("Download CSV", df.to_csv(index=False).encode(),
-                       "deal_workflow.csv", "text/csv")
-
-    buf = io.BytesIO()
-    pdf = canvas.Canvas(buf, pagesize=letter)
-    w,h = letter; pdf.setFont("Helvetica-Bold",14)
-    pdf.drawString(40, h-40, f"Floww workflow for {company or 'Client'}")
-    y = h-80; pdf.setFont("Helvetica",12)
-    for i,s in enumerate(stages,1):
-        pdf.drawString(40,y, f"{i}. {s}"); y-=18
-        pdf.drawString(60,y, f"Tip: {tips[s]}"); y-=28
-        if y<60: pdf.showPage(); y = h-40
-    pdf.save(); buf.seek(0)
-    st.download_button("Download PDF", buf,
-                       "deal_workflow.pdf", "application/pdf")
+        st.markdown(f"**{s}**: {tips[s]}")
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.markdown("Built by **Adam Cigri** with Streamlit & OpenAI")
+st.sidebar.markdown("Powered by Adam Cigri & OpenAI")
+
+# requirements.txt updates:
+# streamlit>=1.34
+# openai>=1.14
+# pandas>=2.2
+# reportlab>=3.6
+# graphviz>=0.20
+# pydantic>=1.10
+# matplotlib>=3.8
+# python-pptx>=0.6.21
+# flake8>=6.1
+
+# CI unchanged
