@@ -5,6 +5,9 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Dummy key so the app can boot during the smoke-test
+    env:
+      OPENAI_API_KEY: "TEST_KEY"
 
     steps:
       - uses: actions/checkout@v3
@@ -12,7 +15,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
@@ -20,12 +23,12 @@ jobs:
           pip install -r requirements.txt
           pip install flake8
 
-      - name: Lint with flake8
-        run: |
-          flake8 . --max-line-length=120
+      - name: Lint
+        run: flake8 . --max-line-length 120
 
       - name: Smoke-test Streamlit app
         run: |
           nohup streamlit run app.py --server.port 8501 &> /dev/null &
           sleep 10
-          curl --fail http://localhost:8501 || { echo 'App failed to start'; exit 1; }
+          curl --fail http://localhost:8501 \
+            || { echo "App failed to start"; exit 1; }
