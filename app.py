@@ -239,34 +239,45 @@ with tab_prop:
     total = price_df["Subtotal"].sum()
     st.metric("Grand Total", f"${total:,.0f}")
 
-    if st.button("Generate Proposal", type="primary"):
+      if st.button("Generate Proposal", type="primary"):
         # ---- convert dtypes to native Python before JSON ----
-        price_records = price_df[["Item","Qty","Unit","Unit Price"]].copy()
+        price_records = price_df[["Item", "Qty", "Unit", "Unit Price"]].copy()
         price_records["Qty"]        = price_records["Qty"].astype(int)
         price_records["Unit Price"] = price_records["Unit Price"].astype(float)
-        price_records_list = price_records.to_dict(orient="records")
+
+        # NumPy scalars -> native int/float
+        price_records_list = [
+            {k: (v.item() if hasattr(v, "item") else v)
+             for k, v in row.items()}
+            for row in price_records.to_dict(orient="records")
+        ]
 
         with st.spinner("Crafting proposal with Floww AI …"):
             sys_p = ("You are an expert sales engineer. "
                      "Return ONLY valid JSON with keys: "
                      "title, executive_summary, background, solution_overview, "
                      "deliverables, pricing, next_steps.")
-            usr_p = json.dumps({
-                "client": client_name,
-                "company": company,
-                "date": str(prop_date),
-                "deliverables": deliverables_txt.splitlines(),
-                "pricing": price_records_list,
-                "total": float(total)
-            }, default=str)
-
+            usr_p = json.dumps(
+                {
+                    "client": client_name,
+                    "company": company,
+                    "date": str(prop_date),
+                    "deliverables": deliverables_txt.splitlines(),
+                    "pricing": price_records_list,
+                    "total": float(total),
+                },
+                default=str,
+            )
             prop_raw = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role":"system","content":sys_p},
-                          {"role":"user","content":usr_p}],
+                messages=[
+                    {"role": "system", "content": sys_p},
+                    {"role": "user", "content": usr_p},
+                ],
                 temperature=0.2,
-                max_tokens=750
+                max_tokens=750,
             ).choices[0].message.content
+
 
         try:
             proposal = ProposalModel.parse_raw(prop_raw)
