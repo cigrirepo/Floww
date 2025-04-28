@@ -90,7 +90,7 @@ if st.sidebar.button("Generate Next-Level Workflow"):
     stages = [s.stage for s in wf.workflow]
     tips   = {s.stage: s.tip for s in wf.workflow}
 
-       # ── Generate Advanced Mermaid Diagram via AI ─────────────────────────
+         # ── Generate Advanced Mermaid Diagram via AI ─────────────────────────
     mermaid_sys = """
 You are a sales operations architect and diagram expert. Output **only** a Mermaid.js flowchart snippet—no markdown fences, no commentary—meeting these requirements:
 
@@ -125,6 +125,7 @@ Keep it DRY and as concise as possible.
     st.code(mermaid_code, language="")
     st.subheader("Rendered Advanced Mermaid Diagram")
     st.markdown(f"```mermaid\n{mermaid_code}\n```", unsafe_allow_html=True)
+
 
     # 3️⃣ Competitor Benchmarks
     if competitor != "None":
